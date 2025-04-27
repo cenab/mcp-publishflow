@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  mcp-publish-server:
+    build: .
+    ports:
+      - "8000:8000" # MCP server port
+      - "9090:9090" # Prometheus metrics port
+    env_file:
+      - .env
+    # volumes:
+    #   - ./content:/app/content # Example: Mount a local content directory
+
+  # Optional: Redis service for rate limiting and security manager
+  # redis:
+  #   image: redis:latest
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+
+# Optional: Define volumes
+# volumes:
+#   redis_data:
