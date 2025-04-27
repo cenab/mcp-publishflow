@@ -14,6 +14,10 @@ class Settings:
     # Default to the potentially incorrect URL for now, will be updated in publishers/medium_publisher.py
     MEDIUM_API_URL: str = os.getenv("MEDIUM_API_URL", "https://api.medium.com/v1/users/me/publications")
     SUBSTACK_API_KEY: str = os.getenv("SUBSTACK_API_KEY")
+    SUBSTACK_USERNAME: str = os.getenv("SUBSTACK_USERNAME") # Added for Playwright automation
+    SUBSTACK_PASSWORD: str = os.getenv("SUBSTACK_PASSWORD") # Added for Playwright automation
+    PLAYWRIGHT_BROWSER: str = os.getenv("PLAYWRIGHT_BROWSER", "chromium") # Added for Playwright automation
+    PLAYWRIGHT_HEADLESS: bool = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() == "true" # Added for Playwright automation
     DEFAULT_LANGUAGE: str = os.getenv("DEFAULT_LANGUAGE", "en")
     SUPPORTED_LANGUAGES: list[str] = os.getenv("SUPPORTED_LANGUAGES", "en").split(",")
     MIN_CONTENT_LENGTH: int = int(os.getenv("MIN_CONTENT_LENGTH", "50"))

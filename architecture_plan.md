@@ -1,79 +1,77 @@
-# Codebase Architecture Improvement Plan
+# Substack Publishing Automation Architecture Plan
 
-This document outlines the current architecture of the MCP Publish Flow codebase and proposes a plan for improvements based on the analysis performed.
+**Objective:** Architect a robust and systematic code solution for automating content publishing to Substack via browser automation using Playwright, triggered by a new MCP tool.
 
-## Current Architecture Overview
+**Current State:**
+*   A basic `SubstackPublisher` class exists (`publishers/substack_publisher.py`), but it only prepares manual instructions.
+*   The MCP server (`mcp_publish_server.py`) is set up to register tools and publishers.
+*   A `mcp_tools/substack_tools.py` file exists, likely intended for Substack-related MCP tools.
 
-The project implements an MCP server using `FastMCP` and is structured into several modules:
+**Proposed Plan:**
 
-*   `mcp_publish_server.py`: Main entry point, initializes managers, registers MCP tools, and contains some validation/API helper logic.
-*   `content_manager.py`: Handles markdown processing, frontmatter, image handling, validation, and sanitization.
-*   `security.py`: Manages JWT authentication and Redis-based rate limiting.
-*   `monitoring.py`: Collects system and application metrics using Prometheus and provides a health check.
-*   `test_mcp_publish_server.py`: Contains unit tests for some utility functions.
-*   `README.md`: Project documentation, setup, usage, and configuration details.
-*   `requirements.txt`: Lists project dependencies.
+1.  **Refactor `SubstackPublisher`**:
+    *   Modify the `SubstackPublisher` class (`publishers/substack_publisher.py`) to use Playwright.
+    *   Add methods for browser initialization, login, navigating to the new post page, filling in title, subtitle, and content, handling paid/free settings, and clicking the publish button.
+    *   The `prepare_post` method will be replaced or adapted to work with the automation flow.
+    *   Implement error handling for browser automation steps (e.g., element not found, login failure).
+    *   Add necessary imports for Playwright.
 
-The architecture promotes separation of concerns across modules, with `mcp_publish_server.py` acting as the central coordinator and interface layer.
+2.  **Add Playwright Dependency**:
+    *   Add `playwright` to the `requirements.txt` file.
+    *   Include instructions for installing Playwright browsers (e.g., `playwright install`).
 
-```mermaid
-graph TD
-    A[MCP Client] --> B(mcp_publish_server.py)
-    B --> C(ContentManager)
-    B --> D(SecurityManager)
-    B --> E(MonitoringManager)
-    C --> F(Markdown Files)
-    C --> G(Image Upload Service)
-    D --> H(Redis)
-    E --> I(Prometheus)
-    B --> J(Substack API - Manual)
-    B --> K(Medium API)
-```
+3.  **Create New MCP Tool**:
+    *   Define a new asynchronous function in `mcp_tools/substack_tools.py` (e.g., `publish_substack_post_tool`).
+    *   Decorate this function with `@mcp.tool` to register it with the server.
+    *   This tool will accept parameters like `file_path` (for the content), `title`, `subtitle`, `is_paid`, and potentially scheduling information if needed later (though the current request is for trigger-based publishing).
+    *   Inside the tool function, it will call the appropriate methods on the refactored `SubstackPublisher` instance to perform the automation.
+    *   Include logging and error handling, reporting success or failure via the MCP tool response.
 
-## Identified Areas for Improvement
+4.  **Integrate New Tool**:
+    *   In `mcp_publish_server.py`, ensure the `register_substack_tools` function (or a new function if needed) correctly registers the `publish_substack_post_tool` with the `FastMCP` instance.
+    *   Pass the initialized `SubstackPublisher` instance to the tool registration function.
 
-Based on the codebase review, the following areas have been identified for potential improvement:
+5.  **Update Configuration**:
+    *   Add new configuration variables to `config.py` for Substack login credentials (username, password) and Playwright settings (e.g., `PLAYWRIGHT_BROWSER`, `PLAYWRIGHT_HEADLESS`).
+    *   Add corresponding entries to `.env.example`.
 
-1.  **Further Modularization and Separation of Concerns:** Some utility functions and API interaction logic are currently in `mcp_publish_server.py` and could be better placed in dedicated modules or classes.
-2.  **Enhanced Error Handling:** Error handling could be more specific, catching distinct exception types rather than broad `Exception`s, and providing consistent error responses.
-3.  **Configuration Management:** Environment variable loading is spread across files; centralizing this would improve maintainability.
-4.  **Testing Coverage:** Existing tests are limited; expanding coverage to manager classes and tool functions is needed.
-5.  **API Key Handling:** Ensure secure handling of API keys throughout the application.
-6.  **Dependency Management:** Clearly document and handle potential unavailability of external dependencies like Redis and the image upload service.
+6.  **Implement Scheduling/Triggering**:
+    *   Since the user chose triggering via a new MCP tool, the scheduling logic will reside in whatever system calls this new MCP tool. The MCP server itself will not handle scheduling internally based on this plan.
 
-## Proposed Plan for Improvements
+7.  **Testing**:
+    *   Develop unit tests for the `SubstackPublisher` methods (mocking browser interactions where necessary).
+    *   Develop integration tests to verify the entire flow from calling the MCP tool to successful (or failed) publishing via Playwright.
 
-The following steps are proposed to address the identified areas for improvement:
-
-1.  **Refactor `mcp_publish_server.py`:**
-    *   Move validation functions (`validate_file_path`, `validate_title`, `validate_subtitle`, `validate_tags`, `read_markdown_file`) into the `ContentManager` or a new `ValidationManager`.
-    *   Move the `make_api_request` function into a new `APIManager` or within dedicated publisher classes.
-2.  **Create Dedicated Publisher Classes:**
-    *   Introduce a `MediumPublisher` class (and potentially a `SubstackPublisher` if a future API becomes available) to encapsulate the logic for interacting with the specific platform APIs. This class would use the `APIManager` (or similar) for making requests.
-3.  **Improve Error Handling:**
-    *   Define more specific custom exception types for different error scenarios (e.g., `ContentValidationError`, `AuthenticationError`, `RateLimitError`, `APIError`).
-    *   Update the `try...except` blocks in the MCP tool functions to catch these specific exceptions and provide more informative error messages.
-4.  **Enhance Testing:**
-    *   Write unit tests for the methods within `ContentManager`, `SecurityManager`, and `MonitoringManager`.
-    *   Write integration tests for the MCP tools to ensure they correctly interact with the manager classes and external dependencies (using mocks where necessary).
-5.  **Centralize Configuration:**
-    *   Create a `config.py` file or a configuration class that loads and validates all necessary environment variables in one place. Pass this configuration object to the manager classes during initialization.
-
-Potential updated architecture diagram:
+**Architectural Flow:**
 
 ```mermaid
 graph TD
-    A[MCP Client] --> B(mcp_publish_server.py)
-    B --> C(ContentManager)
-    B --> D(SecurityManager)
-    B --> E(MonitoringManager)
-    B --> L(MediumPublisher)
-    C --> F(Markdown Files)
-    C --> G(Image Upload Service)
-    D --> H(Redis)
-    E --> I(Prometheus)
-    L --> K(Medium API)
-    B --> J(Substack API - Manual)
-```
+    A[External System/User] --> B(Call MCP Tool: publish_substack_post);
+    B --> C[MCP Server];
+    C --> D[mcp_tools/substack_tools.py];
+    D --> E[publishers/SubstackPublisher];
+    E --> F[Playwright];
+    F --> G[Substack Website];
+    G --> H{Publish Content};
+    H --> I[Substack Website];
+    I --> E;
+    E --> D;
+    D --> C;
+    C --> B;
+    B --> A[External System/User];
 
-This plan aims to improve the codebase's structure, maintainability, and testability.
+    %% Styling
+    classDef default fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef tool fill:#ccf,stroke:#333,stroke-width:2px;
+    classDef publisher fill:#cfc,stroke:#333,stroke-width:2px;
+    classDef library fill:#ffc,stroke:#333,stroke-width:2px;
+    classDef external fill:#eee,stroke:#333,stroke-width:2px;
+
+    A:::external;
+    B:::tool;
+    C:::default;
+    D:::default;
+    E:::publisher;
+    F:::library;
+    G:::external;
+    I:::external;

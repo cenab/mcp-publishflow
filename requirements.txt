@@ -13,3 +13,4 @@ pillow>=9.0.0
 prometheus-client>=0.12.0
 psutil>=5.8.0
 python-multipart>=0.0.5 
+playwright

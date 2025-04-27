@@ -8,6 +8,8 @@ import jwt # Import jwt for token testing
 from datetime import datetime, timedelta # Import datetime and timedelta for token testing
 from fastapi import HTTPException # Import HTTPException for security tests
 import redis # Import redis for rate limiting tests
+import aiohttp # Import aiohttp for asynchronous testing
+import asyncio # Import asyncio for running async tests
 
 from src.content_manager import ContentManager # Import ContentManager
 from src.security import SecurityManager # Import SecurityManager
@@ -140,47 +142,59 @@ Some content here.
         with self.assertRaises(ValueError):
             self.content_manager.validate_frontmatter(invalid_fm_tag_format)
 
-    @patch('requests.post')
-    @patch('requests.get')
-    @patch('PIL.Image.open')
-    def test_process_images(self, mock_image_open, mock_requests_get, mock_requests_post):
-        # Mock image data
-        mock_image = MagicMock()
-        mock_image_open.return_value = mock_image
+    @patch('aiohttp.ClientSession')
+    @patch('content_manager.Path')
+    @patch('builtins.open', new_callable=MagicMock)
+    async def test_process_images(self, mock_open, mock_path, mock_client_session):
+        # Mock aiohttp.ClientSession and its methods
+        mock_session = MagicMock()
+        mock_client_session.return_value.__aenter__.return_value = mock_session
 
-        # Mock successful upload response
-        mock_upload_response = MagicMock()
-        mock_upload_response.status_code = 200
-        mock_upload_response.json.return_value = {'url': 'http://uploaded.com/image.png'}
-        mock_requests_post.return_value = mock_upload_response
+        # Mock successful GET response for remote image
+        mock_get_response = MagicMock()
+        mock_get_response.read.return_value = b'fakeimagedata'
+        mock_get_response.raise_for_status.return_value = None
+        mock_session.get.return_value.__aenter__.return_value = mock_get_response
 
-        # Mock successful download response for remote image
-        mock_download_response = MagicMock()
-        mock_download_response.content = b'fakeimagedata'
-        mock_requests_get.return_value = mock_download_response
+        # Mock successful POST response for image upload
+        mock_post_response = MagicMock()
+        mock_post_response.json.return_value = {'url': 'http://uploaded.com/image.png'}
+        mock_post_response.raise_for_status.return_value = None
+        mock_session.post.return_value.__aenter__.return_value = mock_post_response
+
+        # Mock Path.resolve() for local images
+        mock_path_instance = MagicMock()
+        mock_path.return_value.resolve.return_value = mock_path_instance
+
+        # Mock open for reading local images
+        mock_file = MagicMock()
+        mock_file.read.return_value = b'fakeimagedata'
+        mock_open.return_value.__enter__.return_value = mock_file
 
         # Test with local image
         content_with_local_image = "![alt text](local_image.png)"
-        processed_content = self.content_manager.process_images(content_with_local_image, upload_images=True)
+        processed_content = await self.content_manager.process_images(content_with_local_image, upload_images=True)
         self.assertIn("http://uploaded.com/image.png", processed_content)
-        mock_requests_post.assert_called_once()
-        mock_requests_post.reset_mock()
+        mock_open.assert_called_once_with(mock_path_instance, 'rb')
+        mock_session.post.assert_called_once()
+        mock_open.reset_mock()
+        mock_session.post.reset_mock()
 
         # Test with remote image
         content_with_remote_image = "![alt text](http://example.com/remote_image.jpg)"
-        processed_content = self.content_manager.process_images(content_with_remote_image, upload_images=True)
+        processed_content = await self.content_manager.process_images(content_with_remote_image, upload_images=True)
         self.assertIn("http://uploaded.com/image.png", processed_content)
-        mock_requests_get.assert_called_once_with("http://example.com/remote_image.jpg")
-        mock_requests_post.assert_called_once()
-        mock_requests_post.reset_mock()
-        mock_requests_get.reset_mock()
+        mock_session.get.assert_called_once_with("http://example.com/remote_image.jpg")
+        mock_session.post.assert_called_once()
+        mock_session.get.reset_mock()
+        mock_session.post.reset_mock()
 
         # Test without upload
         content_with_image = "![alt text](image.png)"
-        processed_content = self.content_manager.process_images(content_with_image, upload_images=False)
+        processed_content = await self.content_manager.process_images(content_with_image, upload_images=False)
         self.assertEqual(processed_content, content_with_image)
-        mock_requests_post.assert_not_called()
-        mock_requests_get.assert_not_called()
+        mock_session.get.assert_not_called()
+        mock_session.post.assert_not_called()
 
     def test_validate_content(self):
         # Test valid content
@@ -194,6 +208,63 @@ Some content here.
         # Test content missing main heading
         no_heading_content = "Some content."
         self.assertFalse(self.content_manager.validate_content(no_heading_content))
+
+    @patch('aiohttp.ClientSession')
+    @patch('content_manager.logger')
+    def test_validate_content_broken_links(self, mock_logger, mock_client_session):
+        # Mock aiohttp.ClientSession and its get method
+        mock_session = MagicMock()
+        mock_client_session.return_value.__aenter__.return_value = mock_session
+
+        # Test with valid links
+        valid_content_with_links = "# Title\n\nCheck out [Google](http://google.com) and [Bing](http://bing.com)."
+        mock_response_200 = MagicMock()
+        mock_response_200.raise_for_status.return_value = None # Simulate success
+        mock_session.head.return_value.__aenter__.return_value = mock_response_200
+
+        self.assertTrue(asyncio.run(self.content_manager.validate_content(valid_content_with_links)))
+        self.assertEqual(mock_session.head.call_count, 2)
+        mock_logger.warning.assert_not_called()
+        mock_session.head.reset_mock()
+        mock_logger.warning.reset_mock()
+
+        # Test with a broken link
+        broken_content_with_links = "# Title\n\nCheck out [Broken](http://broken.link)."
+        mock_response_404 = MagicMock()
+        mock_response_404.raise_for_status.side_effect = aiohttp.ClientError("Not Found") # Simulate broken link
+        mock_session.head.return_value.__aenter__.return_value = mock_response_404
+
+        self.assertFalse(asyncio.run(self.content_manager.validate_content(broken_content_with_links)))
+        mock_session.head.assert_called_once_with("http://broken.link", allow_redirects=True, timeout=5)
+        mock_logger.warning.assert_called_once_with("Broken link found: http://broken.link - Not Found")
+
+    def test_generate_social_media_message_truncation(self):
+        frontmatter = {'title': 'A Very Long Article Title That Needs Truncation', 'tags': ['test', 'longtag']}
+        medium_link = "http://medium.com/article"
+        substack_link = "http://substack.com/article"
+
+        # Test without truncation
+        message = self.content_manager.generate_social_media_message(frontmatter, medium_link, substack_link)
+        self.assertIn("Just published a new article: 'A Very Long Article Title That Needs Truncation'.", message)
+        self.assertIn("#test #longtag", message)
+        self.assertIn(f"\n\nRead it on Medium: {medium_link}\nRead it on Substack: {substack_link}", message)
+
+        # Test with truncation
+        max_length = 100
+        truncated_message = self.content_manager.generate_social_media_message(frontmatter, medium_link, substack_link, max_length=max_length)
+        self.assertTrue(len(truncated_message) <= max_length)
+        self.assertIn("...", truncated_message)
+        self.assertIn(f"\n\nRead it on Medium: {medium_link}\nRead it on Substack: {substack_link}", truncated_message)
+
+        # Test truncation with summary
+        frontmatter_with_summary = {'title': 'A Very Long Article Title That Needs Truncation', 'summary': 'This is a short summary.', 'tags': ['test', 'longtag']}
+        message_with_summary = self.content_manager.generate_social_media_message(frontmatter_with_summary, medium_link, substack_link, max_length=max_length)
+        self.assertTrue(len(message_with_summary) <= max_length)
+        self.assertIn("This is a short summary.", message_with_summary)
+        self.assertIn(f"\n\nRead it on Medium: {medium_link}\nRead it on Substack: {substack_link}", message_with_summary)
+        # Check if hashtags are included if they fit after summary
+        self.assertIn("#test #longtag", message_with_summary)
+
 
     def test_sanitize_content(self):
         html_content = "<h1>Title</h1><script>alert('xss')</script><iframe src='evil.com'></iframe><p>Content</p>"

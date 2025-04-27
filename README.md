@@ -29,8 +29,6 @@ This project implements a Model Context Protocol (MCP) server that enables autom
    pip install -r requirements.txt
    ```
 
-:start_line:32
--------
 2. **Configure Environment Variables**:
    Copy the `.env.example` file to `.env` and update the values with your configuration:
    ```bash
@@ -41,14 +39,14 @@ This project implements a Model Context Protocol (MCP) server that enables autom
    # API Keys
    SUBSTACK_API_KEY=your-substack-api-key
    MEDIUM_API_KEY=your-medium-api-key
-   
+
    # Security
    SECRET_KEY=your-secret-key
    REDIS_URL=redis://localhost:6379
-   
+
    # Monitoring
    METRICS_PORT=9090
-   
+
    # Image Upload
    IMAGE_UPLOAD_URL=https://your-image-service.com/upload
    ```
@@ -176,4 +174,4 @@ The server exposes Prometheus metrics on port 9090 (configurable). Available met
 - Ensure your API keys are valid and have the necessary permissions
 - The server runs locally; for production use, consider adding authentication and running over HTTPS
 - Image upload requires a compatible image service
-- Redis is required for rate limiting 
+- Redis is required for rate limiting
